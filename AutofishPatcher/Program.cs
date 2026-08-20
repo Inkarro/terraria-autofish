@@ -89,8 +89,6 @@ var mainProjectileField = Resolve(mainType.Fields.FirstOrDefault(f => f.Name == 
 
 var controlUseItemField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "controlUseItem"), "Player.controlUseItem");
 var releaseUseItemField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "releaseUseItem"), "Player.releaseUseItem");
-var inventoryField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "inventory"), "Player.inventory");
-var selectedItemField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "selectedItem"), "Player.selectedItem");
 var itemAnimationField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "itemAnimation"), "Player.itemAnimation");
 
 var whoAmIField = Resolve(entityType.Fields.FirstOrDefault(f => f.Name == "whoAmI"), "Entity.whoAmI");
@@ -146,6 +144,8 @@ p1.Add(new Instruction(OpCodes.Ldloc, playerLocal));
 p1.Add(OpCodes.Ldc_I4_1.ToInstruction());
 p1.Add(new Instruction(OpCodes.Stfld, releaseUseItemField));
 
+p1.Add(OpCodes.Ret.ToInstruction());
+
 for (int i = 0; i < p1.Count; i++) instrs.Insert(injectAt + i, p1[i]);
 Console.WriteLine($"  Injected simulated click for native catch");
 
@@ -193,12 +193,8 @@ itemCheck.Body.Variables.Add(projVar);
 var gateTarget = icInstrs[gateIdx];
 var p2 = new List<Instruction>();
 
-// Dynamically read this.inventory[this.selectedItem].fishingPole instead of unreliable loc.1
-p2.Add(OpCodes.Ldarg_0.ToInstruction());
-p2.Add(new Instruction(OpCodes.Ldfld, inventoryField));
-p2.Add(OpCodes.Ldarg_0.ToInstruction());
-p2.Add(new Instruction(OpCodes.Ldfld, selectedItemField));
-p2.Add(OpCodes.Ldelem_Ref.ToInstruction());
+// Read the 'item' local variable directly (loc_1) which is exactly what we need
+p2.Add(OpCodes.Ldloc_1.ToInstruction());
 p2.Add(new Instruction(OpCodes.Ldfld, fishingPoleField));
 p2.Add(OpCodes.Ldc_I4_0.ToInstruction());
 p2.Add(new Instruction(OpCodes.Ble, gateTarget));
