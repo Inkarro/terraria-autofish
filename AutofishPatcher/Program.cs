@@ -85,7 +85,7 @@ var entityType = Resolve(allTypes.FirstOrDefault(t => t.Name == "Entity"), "type
 var aiField = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "ai" && f.FieldType.TypeName == "Single[]"), "Projectile.ai");
 var ownerField = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "owner"), "Projectile.owner");
 var activeField = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "active"), "Projectile.active");
-var bobberFieldProj = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "bobber"), "Projectile.bobber");
+var aiStyleField = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "aiStyle"), "Projectile.aiStyle");
 var mainPlayerField = Resolve(mainType.Fields.FirstOrDefault(f => f.Name == "player" && f.IsStatic), "Main.player");
 var myPlayerField = Resolve(mainType.Fields.FirstOrDefault(f => f.Name == "myPlayer" && f.IsStatic), "Main.myPlayer");
 var mainProjectileField = Resolve(mainType.Fields.FirstOrDefault(f => f.Name == "projectile" && f.IsStatic), "Main.projectile");
@@ -284,8 +284,9 @@ p2.Add(new Instruction(OpCodes.Ldfld, whoAmIField));
 p2.Add(new Instruction(OpCodes.Bne_Un, loopIncrement));
 
 p2.Add(new Instruction(OpCodes.Ldloc, projVar));
-p2.Add(new Instruction(OpCodes.Ldfld, bobberFieldProj));
-p2.Add(new Instruction(OpCodes.Brfalse, loopIncrement));
+p2.Add(new Instruction(OpCodes.Ldfld, aiStyleField));
+p2.Add(new Instruction(OpCodes.Ldc_I4, 61)); // 61 代表钓鱼浮标的 AI Style
+p2.Add(new Instruction(OpCodes.Bne_Un, loopIncrement));
 
 // don't recast when find a bobber
 p2.Add(new Instruction(OpCodes.Br, gateTarget));
