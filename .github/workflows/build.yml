@@ -1,0 +1,33 @@
+name: Build Windows x64 EXE
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 允许在 Actions 页面手动触发运行
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x' # 兼容大多数主流 .NET 项目
+
+    - name: Publish EXE
+      # -c Release: 编译发布版
+      # -r win-x64: 指定目标平台为 Windows 64 位
+      # --self-contained true: 打包运行时环境（目标电脑无需预装 .NET 即可运行）
+      # -p:PublishSingleFile=true: 合并为一个单独的 .exe 文件
+      # -o out: 输出到统一的 out 目录方便产物收集
+      run: dotnet publish AutofishPatcher/AutofishPatcher.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./out
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AutofishPatcher-win-x64
+        path: ./out/
