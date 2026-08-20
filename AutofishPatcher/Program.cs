@@ -83,90 +83,14 @@ var ownerField = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "owner"),
 var activeField = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "active"), "Projectile.active");
 var aiStyleField = Resolve(projType.Fields.FirstOrDefault(f => f.Name == "aiStyle"), "Projectile.aiStyle");
 
-var mainPlayerField = Resolve(mainType.Fields.FirstOrDefault(f => f.Name == "player" && f.IsStatic), "Main.player");
-var myPlayerField = Resolve(mainType.Fields.FirstOrDefault(f => f.Name == "myPlayer" && f.IsStatic), "Main.myPlayer");
 var mainProjectileField = Resolve(mainType.Fields.FirstOrDefault(f => f.Name == "projectile" && f.IsStatic), "Main.projectile");
-
 var controlUseItemField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "controlUseItem"), "Player.controlUseItem");
 var releaseUseItemField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "releaseUseItem"), "Player.releaseUseItem");
 var itemAnimationField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name == "itemAnimation"), "Player.itemAnimation");
-
 var whoAmIField = Resolve(entityType.Fields.FirstOrDefault(f => f.Name == "whoAmI"), "Entity.whoAmI");
 var fishingPoleField = Resolve(itemType.Fields.FirstOrDefault(f => f.Name == "fishingPole"), "Item.fishingPole");
 
-var consumeBait = Resolve(playerType.Methods.FirstOrDefault(m => m.Name == "ItemCheck_CheckFishingBobber_ConsumeBait"), "Player.ConsumeBait");
-var pullBobber = Resolve(playerType.Methods.FirstOrDefault(m => m.Name == "ItemCheck_CheckFishingBobber_PullBobber"), "Player.PullBobber");
-
-Console.WriteLine("\n--- Patch 1: Auto-catch (Multiplayer & Animation Safe) ---");
-
-var bobberAI = projType.Methods.First(m => m.Name == "AI_061_FishingBobber");
-var instrs = bobberAI.Body.Instructions;
-
-int nibbleStart = -1;
-for (int i = 0; i < instrs.Count - 6; i++)
-{
-    if (instrs[i].OpCode == OpCodes.Ldarg_0
-        && instrs[i + 1].OpCode == OpCodes.Ldfld && instrs[i + 1].Operand == aiField
-        && instrs[i + 2].OpCode == OpCodes.Ldc_I4_1
-        && instrs[i + 3].OpCode == OpCodes.Ldelem_R4
-        && instrs[i + 4].OpCode == OpCodes.Ldc_R4 && (float)instrs[i + 4].Operand == 0f
-        && instrs[i + 5].OpCode == OpCodes.Bge_Un)
-    {
-        nibbleStart = i;
-        break;
-    }
-}
-
-if (nibbleStart < 0) { Console.WriteLine("ERROR: Could not find nibble handler"); return; }
-Console.WriteLine($"  Found nibble handler at instruction {nibbleStart}");
-
-int injectAt = nibbleStart + 6;
-var baitLocal = new Local(mod.CorLibTypes.Int32, "autofishBait");
-bobberAI.Body.Variables.Add(baitLocal);
-var playerLocal = new Local(playerType.ToTypeSig(), "autofishPlayer");
-bobberAI.Body.Variables.Add(playerLocal);
-
-var originalCode = instrs[injectAt];
-var p1 = new List<Instruction>();
-
-// 1. 等待动画：如果 ai[1] < -20 (刚咬钩，弹幕鱼还在游)，则跳过当前帧的自动提竿
-p1.Add(OpCodes.Ldarg_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Ldfld, aiField));
-p1.Add(OpCodes.Ldc_I4_1.ToInstruction());
-p1.Add(OpCodes.Ldelem_R4.ToInstruction());
-p1.Add(new Instruction(OpCodes.Ldc_R4, -20f));
-p1.Add(new Instruction(OpCodes.Blt_Un, originalCode));
-
-p1.Add(OpCodes.Ldsfld.ToInstruction(mainPlayerField));
-p1.Add(OpCodes.Ldarg_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Ldfld, ownerField));
-p1.Add(OpCodes.Ldelem_Ref.ToInstruction());
-p1.Add(new Instruction(OpCodes.Stloc, playerLocal));
-
-p1.Add(OpCodes.Ldsfld.ToInstruction(myPlayerField));
-p1.Add(OpCodes.Ldarg_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Ldfld, ownerField));
-p1.Add(new Instruction(OpCodes.Bne_Un, originalCode));
-
-p1.Add(OpCodes.Ldc_I4_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Stloc, baitLocal));
-
-p1.Add(new Instruction(OpCodes.Ldloc, playerLocal));
-p1.Add(OpCodes.Ldarg_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Ldloca, baitLocal));
-p1.Add(new Instruction(OpCodes.Call, consumeBait));
-p1.Add(new Instruction(OpCodes.Brfalse, originalCode));
-
-// 2. 原生收杆：调用 PullBobber 让他飞向玩家，【严禁】在这里手动调用 Kill()
-p1.Add(new Instruction(OpCodes.Ldloc, playerLocal));
-p1.Add(OpCodes.Ldarg_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Ldloc, baitLocal));
-p1.Add(new Instruction(OpCodes.Call, pullBobber));
-
-for (int i = 0; i < p1.Count; i++) instrs.Insert(injectAt + i, p1[i]);
-Console.WriteLine($"  Injected network-safe native catch logic");
-
-Console.WriteLine("\n--- Patch 2: Auto-recast when no bobbers ---");
+Console.WriteLine("\n--- Unified Patch: 100% Native Mouse Simulation ---");
 
 var itemCheck = playerType.Methods.First(m => m.Name == "ItemCheck" && m.Body.Instructions.Count > 2000);
 var icInstrs = itemCheck.Body.Instructions;
@@ -202,6 +126,10 @@ if (gateIdx < 0)
 if (gateIdx < 0) { Console.WriteLine("ERROR: Could not find controlUseItem gate"); return; }
 Console.WriteLine($"  Found controlUseItem gate at instruction {gateIdx}");
 
+var hasBobberLocal = new Local(mod.CorLibTypes.Boolean, "hasBobber");
+itemCheck.Body.Variables.Add(hasBobberLocal);
+var shouldReelInLocal = new Local(mod.CorLibTypes.Boolean, "shouldReelIn");
+itemCheck.Body.Variables.Add(shouldReelInLocal);
 var loopVar = new Local(mod.CorLibTypes.Int32, "afLoopIdx");
 itemCheck.Body.Variables.Add(loopVar);
 var projVar = new Local(projType.ToTypeSig(), "afProj");
@@ -222,6 +150,12 @@ p2.Add(new Instruction(OpCodes.Ldfld, itemAnimationField));
 p2.Add(OpCodes.Ldc_I4_0.ToInstruction());
 p2.Add(new Instruction(OpCodes.Bne_Un, gateTarget));
 
+// hasBobber = false, shouldReelIn = false
+p2.Add(OpCodes.Ldc_I4_0.ToInstruction());
+p2.Add(new Instruction(OpCodes.Stloc, hasBobberLocal));
+p2.Add(OpCodes.Ldc_I4_0.ToInstruction());
+p2.Add(new Instruction(OpCodes.Stloc, shouldReelInLocal));
+
 p2.Add(OpCodes.Ldc_I4_0.ToInstruction());
 p2.Add(new Instruction(OpCodes.Stloc, loopVar));
 
@@ -235,6 +169,7 @@ p2.Add(OpCodes.Ldelem_Ref.ToInstruction());
 p2.Add(new Instruction(OpCodes.Stloc, projVar));
 
 var loopIncrement = new Instruction(OpCodes.Ldloc, loopVar);
+
 p2.Add(new Instruction(OpCodes.Ldloc, projVar));
 p2.Add(new Instruction(OpCodes.Ldfld, activeField));
 p2.Add(new Instruction(OpCodes.Brfalse, loopIncrement));
@@ -250,7 +185,29 @@ p2.Add(new Instruction(OpCodes.Ldfld, aiStyleField));
 p2.Add(new Instruction(OpCodes.Ldc_I4, 61));
 p2.Add(new Instruction(OpCodes.Bne_Un, loopIncrement));
 
-p2.Add(new Instruction(OpCodes.Br, gateTarget));
+// 发现自己的浮标，hasBobber = true
+p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
+p2.Add(new Instruction(OpCodes.Stloc, hasBobberLocal));
+
+// 检查 ai[1] < 0f (有鱼咬钩)
+p2.Add(new Instruction(OpCodes.Ldloc, projVar));
+p2.Add(new Instruction(OpCodes.Ldfld, aiField));
+p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
+p2.Add(OpCodes.Ldelem_R4.ToInstruction());
+p2.Add(new Instruction(OpCodes.Ldc_R4, 0f));
+p2.Add(new Instruction(OpCodes.Bge_Un, loopIncrement));
+
+// 检查 ai[1] >= -45f (等待假鱼弹幕动画游到附近)
+p2.Add(new Instruction(OpCodes.Ldloc, projVar));
+p2.Add(new Instruction(OpCodes.Ldfld, aiField));
+p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
+p2.Add(OpCodes.Ldelem_R4.ToInstruction());
+p2.Add(new Instruction(OpCodes.Ldc_R4, -45f));
+p2.Add(new Instruction(OpCodes.Blt_Un, loopIncrement));
+
+// 需要收杆，shouldReelIn = true
+p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
+p2.Add(new Instruction(OpCodes.Stloc, shouldReelInLocal));
 
 p2.Add(loopIncrement);
 p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
@@ -261,13 +218,23 @@ p2.Add(loopEnd);
 p2.Add(new Instruction(OpCodes.Ldc_I4, 1000));
 p2.Add(new Instruction(OpCodes.Blt, loopStart));
 
-p2.Add(OpCodes.Ldarg_0.ToInstruction());
+// 循环结束判断
+var triggerClick = OpCodes.Ldarg_0.ToInstruction();
+
+p2.Add(new Instruction(OpCodes.Ldloc, shouldReelInLocal));
+p2.Add(new Instruction(OpCodes.Brtrue, triggerClick)); // 有鱼上钩，触发鼠标点击收杆
+
+p2.Add(new Instruction(OpCodes.Ldloc, hasBobberLocal));
+p2.Add(new Instruction(OpCodes.Brtrue, gateTarget)); // 有浮标但在等待中，什么也不做
+
+// 如果以上都不满足（水里没浮标），同样触发下面的鼠标点击用来抛竿
+p2.Add(triggerClick);
 p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
-p2.Add(new Instruction(OpCodes.Stfld, controlUseItemField));
+p2.Add(new Instruction(OpCodes.Stfld, controlUseItemField)); // 模拟鼠标按住
 
 p2.Add(OpCodes.Ldarg_0.ToInstruction());
 p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
-p2.Add(new Instruction(OpCodes.Stfld, releaseUseItemField));
+p2.Add(new Instruction(OpCodes.Stfld, releaseUseItemField)); // 模拟鼠标松开
 
 var firstNewInstr = p2[0];
 for (int i = 0; i < gateIdx; i++)
@@ -277,11 +244,11 @@ for (int i = 0; i < gateIdx; i++)
 }
 
 for (int i = 0; i < p2.Count; i++) icInstrs.Insert(gateIdx + i, p2[i]);
-Console.WriteLine($"  Injected {p2.Count} instructions for robust auto-recast");
+Console.WriteLine($"  Injected {p2.Count} instructions for complete human emulation");
 
 Console.WriteLine("\nSaving patched Terraria.exe...");
 var writerOptions = new dnlib.DotNet.Writer.ModuleWriterOptions(mod) { MetadataOptions = { Flags = dnlib.DotNet.Writer.MetadataFlags.PreserveAll } };
 mod.Write(terrariaExe, writerOptions);
 File.WriteAllText(hashFile, HashFile(terrariaExe));
 
-Console.WriteLine("\nDone! Multiplayer-safe Native Autofish patch applied.");
+Console.WriteLine("\nDone! Perfect Unified Autofish patch applied.");
