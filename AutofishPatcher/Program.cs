@@ -197,12 +197,11 @@ p2.Add(OpCodes.Ldelem_R4.ToInstruction());
 p2.Add(new Instruction(OpCodes.Ldc_R4, 0f));
 p2.Add(new Instruction(OpCodes.Bge_Un, loopIncrement));
 
-// 检查 ai[1] >= -45f (等待假鱼弹幕动画游到附近)
 p2.Add(new Instruction(OpCodes.Ldloc, projVar));
 p2.Add(new Instruction(OpCodes.Ldfld, aiField));
 p2.Add(OpCodes.Ldc_I4_1.ToInstruction());
 p2.Add(OpCodes.Ldelem_R4.ToInstruction());
-p2.Add(new Instruction(OpCodes.Ldc_R4, -45f));
+p2.Add(new Instruction(OpCodes.Ldc_R4, -9999f));
 p2.Add(new Instruction(OpCodes.Blt_Un, loopIncrement));
 
 // 需要收杆，shouldReelIn = true
