@@ -94,7 +94,7 @@ var itemAnimationField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name ==
 var whoAmIField = Resolve(entityType.Fields.FirstOrDefault(f => f.Name == "whoAmI"), "Entity.whoAmI");
 var fishingPoleField = Resolve(itemType.Fields.FirstOrDefault(f => f.Name == "fishingPole"), "Item.fishingPole");
 
-Console.WriteLine("\n--- Patch 1: Auto-catch when fish bites ---");
+Console.WriteLine("\n--- Patch 1: Auto-catch when fish bites (With Animation Delay) ---");
 
 var bobberAI = projType.Methods.First(m => m.Name == "AI_061_FishingBobber");
 var instrs = bobberAI.Body.Instructions;
@@ -124,6 +124,15 @@ bobberAI.Body.Variables.Add(playerLocal);
 var originalCode = instrs[injectAt];
 var p1 = new List<Instruction>();
 
+// 核心修复：加入延迟等待逻辑。只有当 ai[1] >= -30f（咬钩动画快结束时）才触发点击
+// 如果 ai[1] < -30f，则跳过我们的模拟点击，让假鱼弹幕有时间游到鱼钩上
+p1.Add(OpCodes.Ldarg_0.ToInstruction());
+p1.Add(new Instruction(OpCodes.Ldfld, aiField));
+p1.Add(OpCodes.Ldc_I4_1.ToInstruction());
+p1.Add(OpCodes.Ldelem_R4.ToInstruction());
+p1.Add(new Instruction(OpCodes.Ldc_R4, -30f));
+p1.Add(new Instruction(OpCodes.Blt_Un, originalCode));
+
 // Simulate native mouse click to natively reel in the fish
 p1.Add(OpCodes.Ldsfld.ToInstruction(myPlayerField));
 p1.Add(OpCodes.Ldarg_0.ToInstruction());
@@ -147,7 +156,7 @@ p1.Add(new Instruction(OpCodes.Stfld, releaseUseItemField));
 p1.Add(OpCodes.Ret.ToInstruction());
 
 for (int i = 0; i < p1.Count; i++) instrs.Insert(injectAt + i, p1[i]);
-Console.WriteLine($"  Injected simulated click for native catch");
+Console.WriteLine($"  Injected simulated click with animation delay");
 
 Console.WriteLine("\n--- Patch 2: Auto-recast when no bobbers ---");
 
