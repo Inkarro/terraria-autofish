@@ -13,7 +13,7 @@ string HashFile(string path)
     return Convert.ToHexString(hash);
 }
 
-// set TERRARIA_DIR to change the target directory, otherwise it defaults to the common Steam install paths
+// set TERRARIA_DIR to change the target directory
 string terrariaDir = Environment.GetEnvironmentVariable("TERRARIA_DIR")
     ?? (OperatingSystem.IsMacOS()
         ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -94,7 +94,11 @@ var itemAnimationField = Resolve(playerType.Fields.FirstOrDefault(f => f.Name ==
 var whoAmIField = Resolve(entityType.Fields.FirstOrDefault(f => f.Name == "whoAmI"), "Entity.whoAmI");
 var fishingPoleField = Resolve(itemType.Fields.FirstOrDefault(f => f.Name == "fishingPole"), "Item.fishingPole");
 
-Console.WriteLine("\n--- Patch 1: Auto-catch when fish bites (Native Animation Preserved) ---");
+var consumeBait = Resolve(playerType.Methods.FirstOrDefault(m => m.Name == "ItemCheck_CheckFishingBobber_ConsumeBait"), "Player.ConsumeBait");
+var pullBobber = Resolve(playerType.Methods.FirstOrDefault(m => m.Name == "ItemCheck_CheckFishingBobber_PullBobber"), "Player.PullBobber");
+var killMethod = Resolve(projType.Methods.FirstOrDefault(m => m.Name == "Kill" && m.Parameters.Count == 1), "Projectile.Kill");
+
+Console.WriteLine("\n--- Patch 1: Auto-catch when fish bites (Direct API Call) ---");
 
 var bobberAI = projType.Methods.First(m => m.Name == "AI_061_FishingBobber");
 var instrs = bobberAI.Body.Instructions;
@@ -118,16 +122,13 @@ if (nibbleStart < 0) { Console.WriteLine("ERROR: Could not find nibble handler")
 Console.WriteLine($"  Found nibble handler at instruction {nibbleStart}");
 
 int injectAt = nibbleStart + 6;
+var baitLocal = new Local(mod.CorLibTypes.Int32, "autofishBait");
+bobberAI.Body.Variables.Add(baitLocal);
 var playerLocal = new Local(playerType.ToTypeSig(), "autofishPlayer");
 bobberAI.Body.Variables.Add(playerLocal);
 
 var originalCode = instrs[injectAt];
 var p1 = new List<Instruction>();
-
-p1.Add(OpCodes.Ldsfld.ToInstruction(myPlayerField));
-p1.Add(OpCodes.Ldarg_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Ldfld, ownerField));
-p1.Add(new Instruction(OpCodes.Bne_Un, originalCode));
 
 p1.Add(OpCodes.Ldsfld.ToInstruction(mainPlayerField));
 p1.Add(OpCodes.Ldarg_0.ToInstruction());
@@ -135,16 +136,32 @@ p1.Add(new Instruction(OpCodes.Ldfld, ownerField));
 p1.Add(OpCodes.Ldelem_Ref.ToInstruction());
 p1.Add(new Instruction(OpCodes.Stloc, playerLocal));
 
-p1.Add(new Instruction(OpCodes.Ldloc, playerLocal));
-p1.Add(OpCodes.Ldc_I4_1.ToInstruction());
-p1.Add(new Instruction(OpCodes.Stfld, controlUseItemField));
+p1.Add(OpCodes.Ldsfld.ToInstruction(myPlayerField));
+p1.Add(OpCodes.Ldarg_0.ToInstruction());
+p1.Add(new Instruction(OpCodes.Ldfld, ownerField));
+p1.Add(new Instruction(OpCodes.Bne_Un, originalCode));
+
+p1.Add(OpCodes.Ldc_I4_0.ToInstruction());
+p1.Add(new Instruction(OpCodes.Stloc, baitLocal));
 
 p1.Add(new Instruction(OpCodes.Ldloc, playerLocal));
-p1.Add(OpCodes.Ldc_I4_1.ToInstruction());
-p1.Add(new Instruction(OpCodes.Stfld, releaseUseItemField));
+p1.Add(OpCodes.Ldarg_0.ToInstruction());
+p1.Add(new Instruction(OpCodes.Ldloca, baitLocal));
+p1.Add(new Instruction(OpCodes.Call, consumeBait));
+p1.Add(new Instruction(OpCodes.Brfalse, originalCode));
+
+p1.Add(new Instruction(OpCodes.Ldloc, playerLocal));
+p1.Add(OpCodes.Ldarg_0.ToInstruction());
+p1.Add(new Instruction(OpCodes.Ldloc, baitLocal));
+p1.Add(new Instruction(OpCodes.Call, pullBobber));
+
+p1.Add(OpCodes.Ldarg_0.ToInstruction());
+p1.Add(new Instruction(OpCodes.Call, killMethod));
+
+p1.Add(OpCodes.Ret.ToInstruction());
 
 for (int i = 0; i < p1.Count; i++) instrs.Insert(injectAt + i, p1[i]);
-Console.WriteLine($"  Injected simulated click without breaking native animations");
+Console.WriteLine($"  Injected robust native catch logic");
 
 Console.WriteLine("\n--- Patch 2: Auto-recast when no bobbers ---");
 
@@ -190,7 +207,10 @@ itemCheck.Body.Variables.Add(projVar);
 var gateTarget = icInstrs[gateIdx];
 var p2 = new List<Instruction>();
 
-p2.Add(OpCodes.Ldloc_1.ToInstruction());
+// 动态通过类型匹配获取 Item 本地变量，确保兼容不同的编译器生成
+var itemLocal = itemCheck.Body.Variables.First(v => v.Type.TypeName == "Item");
+
+p2.Add(new Instruction(OpCodes.Ldloc, itemLocal));
 p2.Add(new Instruction(OpCodes.Ldfld, fishingPoleField));
 p2.Add(OpCodes.Ldc_I4_0.ToInstruction());
 p2.Add(new Instruction(OpCodes.Ble, gateTarget));
@@ -262,4 +282,4 @@ var writerOptions = new dnlib.DotNet.Writer.ModuleWriterOptions(mod) { MetadataO
 mod.Write(terrariaExe, writerOptions);
 File.WriteAllText(hashFile, HashFile(terrariaExe));
 
-Console.WriteLine("\nDone! Robust Native Autofish patch applied.");
+Console.WriteLine("\nDone! Perfected Native Autofish patch applied.");
