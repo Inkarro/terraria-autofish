@@ -96,9 +96,8 @@ var fishingPoleField = Resolve(itemType.Fields.FirstOrDefault(f => f.Name == "fi
 
 var consumeBait = Resolve(playerType.Methods.FirstOrDefault(m => m.Name == "ItemCheck_CheckFishingBobber_ConsumeBait"), "Player.ConsumeBait");
 var pullBobber = Resolve(playerType.Methods.FirstOrDefault(m => m.Name == "ItemCheck_CheckFishingBobber_PullBobber"), "Player.PullBobber");
-var killMethod = Resolve(projType.Methods.FirstOrDefault(m => m.Name == "Kill" && m.Parameters.Count == 1), "Projectile.Kill");
 
-Console.WriteLine("\n--- Patch 1: Auto-catch when fish bites (Direct API Call) ---");
+Console.WriteLine("\n--- Patch 1: Auto-catch (Multiplayer & Animation Safe) ---");
 
 var bobberAI = projType.Methods.First(m => m.Name == "AI_061_FishingBobber");
 var instrs = bobberAI.Body.Instructions;
@@ -130,6 +129,14 @@ bobberAI.Body.Variables.Add(playerLocal);
 var originalCode = instrs[injectAt];
 var p1 = new List<Instruction>();
 
+// 1. 等待动画：如果 ai[1] < -20 (刚咬钩，弹幕鱼还在游)，则跳过当前帧的自动提竿
+p1.Add(OpCodes.Ldarg_0.ToInstruction());
+p1.Add(new Instruction(OpCodes.Ldfld, aiField));
+p1.Add(OpCodes.Ldc_I4_1.ToInstruction());
+p1.Add(OpCodes.Ldelem_R4.ToInstruction());
+p1.Add(new Instruction(OpCodes.Ldc_R4, -20f));
+p1.Add(new Instruction(OpCodes.Blt_Un, originalCode));
+
 p1.Add(OpCodes.Ldsfld.ToInstruction(mainPlayerField));
 p1.Add(OpCodes.Ldarg_0.ToInstruction());
 p1.Add(new Instruction(OpCodes.Ldfld, ownerField));
@@ -150,18 +157,14 @@ p1.Add(new Instruction(OpCodes.Ldloca, baitLocal));
 p1.Add(new Instruction(OpCodes.Call, consumeBait));
 p1.Add(new Instruction(OpCodes.Brfalse, originalCode));
 
+// 2. 原生收杆：调用 PullBobber 让他飞向玩家，【严禁】在这里手动调用 Kill()
 p1.Add(new Instruction(OpCodes.Ldloc, playerLocal));
 p1.Add(OpCodes.Ldarg_0.ToInstruction());
 p1.Add(new Instruction(OpCodes.Ldloc, baitLocal));
 p1.Add(new Instruction(OpCodes.Call, pullBobber));
 
-p1.Add(OpCodes.Ldarg_0.ToInstruction());
-p1.Add(new Instruction(OpCodes.Call, killMethod));
-
-p1.Add(OpCodes.Ret.ToInstruction());
-
 for (int i = 0; i < p1.Count; i++) instrs.Insert(injectAt + i, p1[i]);
-Console.WriteLine($"  Injected robust native catch logic");
+Console.WriteLine($"  Injected network-safe native catch logic");
 
 Console.WriteLine("\n--- Patch 2: Auto-recast when no bobbers ---");
 
@@ -207,7 +210,6 @@ itemCheck.Body.Variables.Add(projVar);
 var gateTarget = icInstrs[gateIdx];
 var p2 = new List<Instruction>();
 
-// 动态通过类型匹配获取 Item 本地变量，确保兼容不同的编译器生成
 var itemLocal = itemCheck.Body.Variables.First(v => v.Type.TypeName == "Item");
 
 p2.Add(new Instruction(OpCodes.Ldloc, itemLocal));
@@ -282,4 +284,4 @@ var writerOptions = new dnlib.DotNet.Writer.ModuleWriterOptions(mod) { MetadataO
 mod.Write(terrariaExe, writerOptions);
 File.WriteAllText(hashFile, HashFile(terrariaExe));
 
-Console.WriteLine("\nDone! Perfected Native Autofish patch applied.");
+Console.WriteLine("\nDone! Multiplayer-safe Native Autofish patch applied.");
